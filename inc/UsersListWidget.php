@@ -72,10 +72,18 @@ final class UsersListWidget
 
     private function init_actions()
     {
+        add_action("pre_user_query", [$this, "ulw_pre_user_query"]);
     }
 
     function ulw_load_widget()
     {
         register_widget(ULW_Widget::class);
+    }
+
+    function ulw_pre_user_query($user_query)
+    {
+        global $wpdb;
+
+        $user_query->query_fields .= ", (select count(1) from {$wpdb->comments} c where ID = c.user_id and c.comment_approved = 1) comments_count";
     }
 }
