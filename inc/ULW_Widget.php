@@ -37,22 +37,7 @@ class ULW_Widget extends \WP_Widget
 
     public function widget($args, $instance)
     {
-        $args = [
-            "fields" => ["display_name"],
-            "number" => $instance["users_count"],
-            "role__in" => $instance["user_has_role"],
-        ];
-
-        $users = get_users($args);
-
-        if ($instance["show_users_without_comments"] !== "on") {
-            $users = array_filter($users, function ($u) {
-                return $u->comments_count > 0;
-            });
-        }
-
-        $keys = array_column($users, "comments_count");
-        array_multisort($keys, SORT_DESC, $users);
+        $users = $this->users_query($instance["users_count"], $instance["show_users_without_comments"], $instance["user_has_role"]);
 ?>
         <div>
             <h2><?= __("Users list", ULW_TEXTDOMAIN); ?></h2>
@@ -65,7 +50,7 @@ class ULW_Widget extends \WP_Widget
             <?php else : ?>
                 <ul>
                     <?php foreach ($users as $user) : ?>
-                        <li><?= "{$user->display_name}({$user->comments_count})"; ?></li>
+                        <li><?= "{$user->display_name} ({$user->comments_count})"; ?></li>
                     <?php endforeach; ?>
                 </ul>
             <?php endif; ?>
@@ -116,5 +101,45 @@ class ULW_Widget extends \WP_Widget
     public function update($new_instance, $old_instance)
     {
         return $new_instance;
+    }
+
+    private function users_query($users_count, $show_users_without_comments, $user_has_role)
+    {
+        global $wpdb;
+
+        // for "HAVING" statement 
+        // $show_users_without_comments === "on" ? 
+        //                  get users where comments count > -1
+        //                  get users where comments count > 0
+        $min_comments_count = $show_users_without_comments === "on" ? -1 : 0;
+
+        $query = "SELECT u.display_name
+                    , ( SELECT COUNT(*) FROM {$wpdb->comments} c WHERE c.user_id = u.ID) AS comments_count 
+                FROM 
+                    {$wpdb->users} u";
+
+        // filter users by roles (if need)
+        if (!empty($user_has_role)) {
+            $where = "";
+            foreach ($user_has_role as $role) {
+                $where .= " or um.meta_value like '%{$role}%'";
+            }
+
+            $query .= " LEFT JOIN 
+                            {$wpdb->usermeta} um ON u.ID = um.user_id 
+                        WHERE 
+                            um.meta_key = 'wp_capabilities' 
+                        AND 
+                            ( 1 = 0 $where)";
+        }
+
+        $query .= " HAVING
+                        comments_count > {$min_comments_count}
+                    ORDER BY
+                        comments_count DESC
+                    LIMIT 
+                        {$users_count};";
+
+        return $wpdb->get_results($query);
     }
 }
